@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Matches dashboard</title>
+  </head>
+  <body>
+    <main>
+      <section aria-labelledby="competition-days-heading">
+        <h1 id="competition-days-heading">Competition days</h1>
+        <p id="competition-days-status" role="status"></p>
+        <ul id="competition-days" aria-busy="true"></ul>
+      </section>
+      <section id="matches-section" aria-labelledby="matches-heading">
+        <h2 id="matches-heading">Matches</h2>
+        <button id="filters-button" type="button" aria-haspopup="dialog">Filters</button>
+        <div id="matches"></div>
+      </section>
+    </main>
+    <dialog id="filters-dialog" aria-labelledby="filters-heading">
+      <h2 id="filters-heading">Filters</h2>
+      <form id="filters-form">
+        <fieldset>
+          <legend>Events</legend>
+          <label><input type="radio" name="event-filter" value="all" checked /> All events</label>
+          <label><input type="radio" name="event-filter" value="men" /> Men</label>
+          <label><input type="radio" name="event-filter" value="women" /> Women</label>
+        </fieldset>
+        <div class="filter-actions">
+          <button id="filters-cancel" type="button">Cancel</button>
+          <button type="submit">Apply</button>
+        </div>
+      </form>
+    </dialog>
+    <script type="module" src="/src/matchesDashboard.ts"></script>
+  </body>
+</html>
