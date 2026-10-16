@@ -1,7 +1,7 @@
 type Scorer = {
     player: string | null;
-    assist: string | null;
-    minute: string | null;
+    assist?: string;
+    minute: number | null;
     team: string | null;
 
     // brak pewnego mapowania

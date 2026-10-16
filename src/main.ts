@@ -1,4 +1,4 @@
-import './style.css';
+import './styles/style.css';
 
 class Main {
     private readonly app: HTMLElement;

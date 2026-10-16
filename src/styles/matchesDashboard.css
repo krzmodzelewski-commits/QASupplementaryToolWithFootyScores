@@ -1,0 +1,350 @@
+:root {
+  --page-background: #f7f2e9;
+  --surface: #fffdf8;
+  --surface-soft: #faf5ec;
+  --header-background: #eadcc5;
+  --selected-background: #dfc9a7;
+  --border-color: #d8c8b0;
+  --text-color: #493e32;
+  --accent-color: #796044;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  color: var(--text-color);
+  background: var(--page-background);
+}
+
+main {
+  display: grid;
+  gap: 24px;
+  padding: 24px;
+}
+
+section {
+  min-width: 0;
+  padding: 24px;
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+#competition-days {
+  display: flex;
+  max-width: 100%;
+  gap: 12px;
+  overflow-x: auto;
+  scrollbar-color: #104b2f var(--surface-soft);
+  margin: 0 auto;
+  padding: 0 0 8px;
+  list-style: none;
+}
+
+#competition-days::-webkit-scrollbar {
+  height: 10px;
+}
+
+#competition-days::-webkit-scrollbar-track {
+  background: var(--surface-soft);
+}
+
+#competition-days::-webkit-scrollbar-thumb {
+  background: #104b2f;
+  border-radius: 5px;
+}
+
+#competition-days li {
+  flex: 0 0 auto;
+}
+
+#competition-days button {
+  display: grid;
+  box-sizing: border-box;
+  width: 70px;
+  height: 48px;
+  place-items: center;
+  padding: 4px;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  color: var(--text-color);
+  box-shadow: 0 2px 4px rgb(73 62 50 / 8%);
+  font-weight: 450;
+  font-size: 0.7rem;
+  text-align: center;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+#competition-days button[aria-pressed="true"] {
+  background: var(--selected-background);
+  border-color: var(--accent-color);
+  color: var(--text-color);
+}
+
+#competition-days button:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
+
+#matches {
+  overflow-x: auto;
+}
+
+#filters-button {
+  margin-bottom: 16px;
+}
+
+#filters-button,
+#filters-dialog button {
+  padding: 8px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--header-background);
+  color: var(--text-color);
+  font: inherit;
+  cursor: pointer;
+}
+
+#filters-dialog {
+  width: min(360px, calc(100% - 64px));
+  padding: 24px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-color);
+}
+
+#filters-dialog::backdrop {
+  background: rgb(73 62 50 / 35%);
+}
+
+#filters-dialog label {
+  display: block;
+  margin: 12px 0;
+}
+
+.filter-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+#matches table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+#matches th,
+#matches td {
+  padding: 16px;
+  border: 0;
+  text-align: left;
+  vertical-align: middle;
+}
+
+#matches tr > :not(:first-child) {
+  border-left: 1px solid var(--border-color);
+}
+
+#matches tbody tr > * {
+  border-top: 1px solid var(--border-color);
+}
+
+#matches th {
+  background: var(--header-background);
+  color: var(--text-color);
+}
+
+#matches th button {
+  border: 0;
+  padding: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+#matches th button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+#matches .match-day-heading {
+  background: #f0e5d3;
+  color: var(--text-color);
+}
+
+#matches tbody tr:nth-child(even) {
+  background: var(--surface-soft);
+}
+
+.match-event-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+  gap: 16px;
+}
+
+.match-summary-row {
+  cursor: pointer;
+}
+
+.match-details-toggle {
+  display: block;
+  margin-top: 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 4px 8px;
+  background: var(--surface-soft);
+  color: var(--text-color);
+  cursor: pointer;
+}
+
+.match-summary-row > td:last-child .match-details-toggle {
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.match-details-panel {
+  padding: 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.match-details-panel pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.json-download-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.json-download-actions .match-details-toggle {
+  margin-top: 0;
+}
+
+.graphical-match-details {
+  display: grid;
+  gap: 16px;
+}
+
+.match-lineups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(240px, 1fr));
+  align-items: start;
+  gap: 16px;
+  overflow-x: auto;
+}
+
+.match-lineups caption {
+  padding: 12px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.lineup-flag {
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.match-description {
+  font-weight: 600;
+}
+
+.match-participant,
+.match-score {
+  line-height: 1.75;
+}
+
+.match-participant {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.participant-flag {
+  width: 24px;
+  height: 16px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+#competition-days time span {
+  display: block;
+}
+
+.dashboard-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0;
+  padding: 12px 16px;
+  border: 1px solid var(--border-color);
+  border-left-width: 4px;
+  border-radius: 8px;
+  line-height: 1.5;
+  background: var(--surface-soft);
+}
+
+.dashboard-status:empty {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.status-loading {
+  border-color: #8caaa9;
+  background: #edf4f2;
+  color: #345b5b;
+}
+
+.status-empty {
+  border-color: #bdac94;
+  background: #f6efe3;
+}
+
+.status-error {
+  border-color: #ba7b75;
+  background: #fbedeb;
+  color: #803b35;
+}
+
+.status-warning {
+  border-color: #b89a5d;
+  background: #fbf3df;
+  color: #6b5122;
+}
+
+.status-success {
+  border-color: #8da389;
+  background: #eef4e9;
+  color: #425d3a;
+}
+
+.dashboard-status .match-details-toggle {
+  margin-top: 0;
+  font: inherit;
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}

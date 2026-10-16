@@ -1,73 +1,49 @@
 import { OlympicResultsApi } from './services/OlympicResultsApi';
 import { DataParser } from './services/DataParser';
-import './matchesDashboard.css';
+import { MatchesDashboardHtmlService } from './services/MatchesDashboardHtmlService';
+import type { DetailsFormat, EventFilter, SortColumn, SortDirection } from './models/MatchesDashboardView';
+import './styles/matchesDashboard.css';
 import type { MatchSummary } from './models/MatchSummary';
+import {OlympicMatchData} from './models/OlympicMatchData';
 
-type SortColumn = 'time' | 'event' | 'result' | 'location';
-
-const flagImages = import.meta.glob<string>('../resources/images/flags/*.webp', {
-    eager: true,
-    query: '?url',
-    import: 'default',
-});
+class EmptyMatchDetailsError extends Error {}
 
 export class MatchesDashboard {
 
     protected competitionDays: string[] = [];
     protected matchesForEachDay: Record<string, Awaited<ReturnType<OlympicResultsApi['getMatchSummary']>>> = {};
-    private readonly daysListEl: HTMLUListElement;
-    private readonly daysStatusEl: HTMLElement;
-    private readonly matchesEl: HTMLElement;
     private selectedDay: string | null = null;
-    private eventFilter: 'all' | 'men' | 'women' = 'all';
+    private eventFilter: EventFilter = 'all';
     private sortColumn: SortColumn = 'time';
-    private sortDirection: 'ascending' | 'descending' = 'ascending';
+    private sortDirection: SortDirection = 'ascending';
+    private footballSymbols: Awaited<ReturnType<OlympicResultsApi['getSportCodes']>> | undefined;
+    private initialState: 'idle' | 'loading' | 'ready' | 'error' = 'idle';
 
     constructor(
         private readonly olympicResultsApi = new OlympicResultsApi(),
         private readonly dataExtractor = new DataParser(),
+        private readonly htmlService = new MatchesDashboardHtmlService(),
     ) {
-        const daysListEl = document.querySelector<HTMLUListElement>('#competition-days');
-        const daysStatusEl = document.querySelector<HTMLElement>('#competition-days-status');
-        const matchesEl = document.querySelector<HTMLElement>('#matches');
-
-        if (!daysListEl || !daysStatusEl || !matchesEl) {
-            throw new Error('Dashboard elements are missing from the document.');
-        }
-
-        this.daysListEl = daysListEl;
-        this.daysStatusEl = daysStatusEl;
-        this.matchesEl = matchesEl;
-        this.initializeFilters();
+        this.htmlService.initializeFilters(
+            () => this.eventFilter,
+            filter => {
+                this.eventFilter = filter;
+                this.renderMatches();
+            },
+        );
+        void this.initializeFootballSymbols();
         void this.initializeDates();
     }
 
-    private initializeFilters(): void {
-        const button = document.querySelector<HTMLButtonElement>('#filters-button');
-        const dialog = document.querySelector<HTMLDialogElement>('#filters-dialog');
-        const form = document.querySelector<HTMLFormElement>('#filters-form');
-        const cancel = document.querySelector<HTMLButtonElement>('#filters-cancel');
-        if (!button || !dialog || !form || !cancel) {
-            throw new Error('Filter elements are missing from the document.');
+    private async initializeFootballSymbols(): Promise<void> {
+        this.htmlService.setSymbolsStatus('Football action labels are loading. Early JSON results may not include goal types.');
+        try {
+            this.footballSymbols = await this.olympicResultsApi.getSportCodes();
+            this.htmlService.setSymbolsStatus('');
+        } catch (error) {
+            this.htmlService.setSymbolsStatus('Football action labels could not be loaded. Matches and details are still available, but goal types may be missing from JSON results.');
+            console.error('Failed to load football symbols:', error);
         }
-
-        button.addEventListener('click', () => {
-            form.querySelectorAll<HTMLInputElement>('input[name="event-filter"]').forEach(input => {
-                input.checked = input.value === this.eventFilter;
-            });
-            dialog.showModal();
-        });
-        cancel.addEventListener('click', () => dialog.close());
-        form.addEventListener('submit', event => {
-            event.preventDefault();
-            const value = new FormData(form).get('event-filter');
-            if (value !== 'all' && value !== 'men' && value !== 'women') {
-                throw new Error('Invalid event filter.');
-            }
-            this.eventFilter = value;
-            this.renderMatches();
-            dialog.close();
-        });
     }
 
     private getFilteredMatches(day: string) {
@@ -85,259 +61,253 @@ export class MatchesDashboard {
      * @private
      */
     private async initializeDates(): Promise<void> {
-        this.daysStatusEl.textContent = 'Loading competition days and matches...';
-        this.daysListEl.setAttribute('aria-busy', 'true');
+        if (this.initialState === 'loading') return;
+        this.initialState = 'loading';
+        this.htmlService.setDaysStatus('Loading competition days and matches...');
+        this.htmlService.setMatchesStatus('Loading matches. Please wait before viewing results.');
+        this.htmlService.setDaysBusy(true);
 
         try {
             const competitionDates = await this.olympicResultsApi.getCompetitionDates();
-            this.competitionDays = this.dataExtractor.extractCompetitionDates(competitionDates);
-            const dayMonthFormatter = new Intl.DateTimeFormat('en-GB', {
-                day: 'numeric',
-                month: 'long',
-                timeZone: 'UTC',
-            });
-            const daysWithMatches = await Promise.all(this.competitionDays.map(async day => {
-                const date = new Date(day);
-                const item = document.createElement('li');
-                const button = document.createElement('button');
-                button.type = 'button';
-                button.setAttribute('aria-pressed', 'false');
-                button.addEventListener('click', () => this.selectDay(day, button));
-                const time = document.createElement('time');
-                time.dateTime = day;
-                const dayMonth = document.createElement('span');
-                dayMonth.textContent = dayMonthFormatter.format(date);
-                const year = document.createElement('span');
-                year.textContent = String(date.getUTCFullYear());
-                time.append(dayMonth, document.createTextNode(' '), year);
-                button.append(time);
-                item.append(button);
+            const competitionDays = this.dataExtractor.extractCompetitionDates(competitionDates);
+            // Settle every request before enabling retry, so failed batches cannot overlap.
+            const results = await Promise.allSettled(competitionDays.map(async day => {
+                const item = this.htmlService.createDayItem(day, (date, button) => this.selectDay(date, button));
                 const matches = await this.olympicResultsApi.getMatchSummary(day);
                 return { day, item, matches };
             }));
+            const daysWithMatches = results.map(result => {
+                if (result.status === 'rejected') throw result.reason;
+                return result.value;
+            });
 
             const daysLiItems = daysWithMatches.map(({ item }) => item);
+            this.competitionDays = competitionDays;
             this.matchesForEachDay = Object.fromEntries(
                 daysWithMatches.map(({ day, matches }) => [day, matches]),
             );
-            const allDaysItem = document.createElement('li');
-            const allDaysButton = document.createElement('button');
-            allDaysButton.type = 'button';
-            allDaysButton.textContent = 'All days';
-            allDaysButton.setAttribute('aria-pressed', 'false');
-            allDaysButton.addEventListener('click', () => this.selectDay(null, allDaysButton));
-            allDaysItem.append(allDaysButton);
-            this.daysListEl.replaceChildren(allDaysItem, ...daysLiItems);
-            this.daysStatusEl.textContent = daysLiItems.length ? '' : 'No competition days available.';
+            const firstDayButton = this.htmlService.renderDays(daysLiItems, button => this.selectDay(null, button));
+            this.initialState = 'ready';
+            this.htmlService.setDaysStatus(daysLiItems.length ? '' : 'No competition days available.', 'empty');
             const firstDay = this.competitionDays[0];
-            const firstDayButton = daysLiItems[0]?.querySelector('button');
             if (firstDay !== undefined && firstDayButton) {
                 this.selectDay(firstDay, firstDayButton);
+            } else {
+                this.renderMatches();
             }
         } catch (error) {
-            this.daysStatusEl.textContent = 'Failed to load competition days and matches.';
+            this.initialState = 'error';
+            this.htmlService.setDaysStatus('Competition days and matches could not be loaded. Check your connection and retry.', 'error', () => {
+                void this.initializeDates();
+            });
+            this.htmlService.setMatchesStatus('Matches are unavailable because the schedule could not be loaded. Use Retry above.', 'error');
             console.error('Failed to load competition days and matches:', error);
         } finally {
-            this.daysListEl.setAttribute('aria-busy', 'false');
+            this.htmlService.setDaysBusy(false);
         }
     }
 
     private selectDay(day: string | null, selectedButton: HTMLButtonElement): void {
         this.selectedDay = day;
-        this.daysListEl.querySelectorAll('button').forEach(button => {
-            button.setAttribute('aria-pressed', String(button === selectedButton));
-        });
-
+        this.htmlService.selectDay(selectedButton);
         this.renderMatches();
     }
 
     private renderMatches(): void {
+        if (this.initialState !== 'ready') return;
+        try {
+            this.renderReadyMatches();
+        } catch (error) {
+            this.htmlService.showEmptyMatches('');
+            this.htmlService.setMatchesStatus('Matches could not be displayed because the schedule contains invalid data. Try another day or filter, or retry.', 'error', () => this.renderMatches());
+            console.error('Failed to display matches:', error);
+        }
+    }
+
+    private renderReadyMatches(): void {
+        if (!this.competitionDays.length) {
+            this.htmlService.showEmptyMatches('No matches available because no competition days were returned.');
+            return;
+        }
         const day = this.selectedDay;
         const days = day === null ? this.competitionDays : [day];
         if (!days.some(date => this.getFilteredMatches(date).length)) {
-            this.matchesEl.textContent = this.eventFilter !== 'all'
+            this.htmlService.showEmptyMatches(this.eventFilter !== 'all'
                 ? 'No matches found for the selected filters.'
-                : day === null ? 'No matches available.' : 'No matches for this day.';
+                : day === null ? 'No matches available.' : 'No matches for this day.');
             return;
         }
 
-        const table = document.createElement('table');
-        table.setAttribute('aria-labelledby', 'matches-heading');
-        const header = table.createTHead().insertRow();
-        for (const [column, title] of [
-            ['time', 'Time (UTC)'], ['event', 'Event'], ['result', 'Result'], ['location', 'Location'],
-        ] as const) {
-            const cell = document.createElement('th');
-            cell.scope = 'col';
-            const active = column === this.sortColumn;
-            cell.setAttribute('aria-sort', active ? this.sortDirection : 'none');
-            const button = document.createElement('button');
-            button.type = 'button';
-            button.dataset.sort = column;
-            button.textContent = `${title} ${active ? (this.sortDirection === 'ascending' ? '\u2191' : '\u2193') : '\u2195'}`;
-            button.setAttribute('aria-label', `${title}: sort ${active && this.sortDirection === 'ascending' ? 'descending' : 'ascending'}`);
-            button.addEventListener('click', () => {
+        const matchDays = days.map(date => ({
+            date,
+            matches: this.getFilteredMatches(date).sort((first, second) => this.compareMatches(first, second)),
+        })).filter(({ matches }) => this.eventFilter === 'all' || matches.length);
+        this.htmlService.renderMatches(
+            matchDays,
+            this.sortColumn,
+            this.sortDirection,
+            (column, active) => {
                 this.sortDirection = active && this.sortDirection === 'ascending' ? 'descending' : 'ascending';
                 this.sortColumn = column;
                 this.renderMatches();
-                this.matchesEl.querySelector<HTMLButtonElement>(`button[data-sort="${column}"]`)?.focus();
-            });
-            cell.append(button);
-            header.append(cell);
-        }
-
-        const actionsHeader = document.createElement('th');
-        actionsHeader.scope = 'col';
-        actionsHeader.textContent = 'Actions';
-        header.append(actionsHeader);
-
-        const dateFormatter = new Intl.DateTimeFormat('en-GB', {
-            day: 'numeric',
-            month: 'long',
-            year: 'numeric',
-            timeZone: 'UTC',
-        });
-        const timeFormatter = new Intl.DateTimeFormat('en-GB', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hourCycle: 'h23',
-            timeZone: 'UTC',
-        });
-
-        for (const date of days) {
-            const filteredMatches = this.getFilteredMatches(date);
-            if (this.eventFilter !== 'all' && !filteredMatches.length) {
-                continue;
-            }
-            const body = table.createTBody();
-            const dateCell = document.createElement('th');
-            dateCell.scope = 'rowgroup';
-            dateCell.colSpan = 5;
-            dateCell.className = 'match-day-heading';
-            dateCell.textContent = dateFormatter.format(new Date(date));
-            body.insertRow().append(dateCell);
-
-            const matches = filteredMatches.sort((first, second) => this.compareMatches(first, second));
-            if (!matches.length) {
-                const emptyCell = body.insertRow().insertCell();
-                emptyCell.colSpan = 5;
-                emptyCell.textContent = 'No matches for this day.';
-            }
-            matches.forEach(match => {
-            const row = body.insertRow();
-            const startDate = match.timeAndOrder.startDate;
-            row.insertCell().textContent = startDate
-                ? timeFormatter.format(new Date(this.getStartTimestamp(startDate)))
-                : 'Not available';
-
-            const eventCell = row.insertCell();
-            const eventColumns = document.createElement('div');
-            eventColumns.className = 'match-event-columns';
-            const description = document.createElement('div');
-            description.className = 'match-description';
-            description.textContent = match.event.description ?? 'Not available';
-            const participants = document.createElement('div');
-            for (const participant of match.event.participants) {
-                const participantEl = document.createElement('div');
-                participantEl.className = 'match-participant';
-                participantEl.textContent = participant.description ?? 'Not available';
-                if (participant.code) {
-                    const flagUrl = flagImages[`../resources/images/flags/${participant.code}.webp`];
-                    if (flagUrl) {
-                        const flag = document.createElement('img');
-                        flag.src = flagUrl;
-                        flag.alt = `${participant.description ?? participant.code} flag`;
-                        flag.className = 'participant-flag';
-                        participantEl.prepend(flag);
-                    } else {
-                        console.warn(`Flag image is missing for organisation code: ${participant.code}`);
-                    }
-                }
-                participants.append(participantEl);
-            }
-            eventColumns.append(description, participants);
-            eventCell.append(eventColumns);
-
-            const resultCell = row.insertCell();
-            for (const [label, score] of [
-                ['Home score', match.result.homeScore],
-                ['Away score', match.result.awayScore],
-            ] as const) {
-                const scoreEl = document.createElement('div');
-                scoreEl.className = 'match-score';
-                scoreEl.textContent = String(score ?? '-');
-                scoreEl.setAttribute('aria-label', `${label}: ${score ?? 'Not available'}`);
-                resultCell.append(scoreEl);
-            }
-
-            row.insertCell().textContent = match.location.longDescription ?? 'Not available';
-            this.attachMatchDetails(row, match);
-        });
-        }
-        this.matchesEl.replaceChildren(table);
+                this.htmlService.focusSort(column);
+            },
+            startDate => this.getStartTimestamp(startDate),
+            (row, match) => this.attachMatchDetails(row, match),
+        );
     }
 
     private attachMatchDetails(row: HTMLTableRowElement, match: MatchSummary): void {
-        const detailsRow = document.createElement('tr');
-        detailsRow.className = 'match-details-row';
-        detailsRow.hidden = true;
-        const cell = detailsRow.insertCell();
-        cell.colSpan = 5;
-        const panel = document.createElement('div');
-        panel.className = 'match-details-panel';
-        panel.setAttribute('role', 'region');
-        panel.setAttribute('aria-label', 'Match details');
-        const status = document.createElement('p');
-        status.setAttribute('role', 'status');
-        panel.append(status);
-        cell.append(panel);
-        row.after(detailsRow);
-
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'match-details-toggle';
-        button.textContent = 'Show details';
-        button.setAttribute('aria-expanded', 'false');
-        row.insertCell().append(button);
-        row.classList.add('match-summary-row');
-
-        let loaded = false;
-        let loading = false;
-        const toggle = async (): Promise<void> => {
-            detailsRow.hidden = !detailsRow.hidden;
-            button.setAttribute('aria-expanded', String(!detailsRow.hidden));
-            button.textContent = detailsRow.hidden ? 'Show details' : 'Hide details';
-            if (detailsRow.hidden || loaded || loading) {
-                return;
-            }
-
+        let activeFormat: DetailsFormat | null = null;
+        let originalDetailsPromise: Promise<unknown> | undefined;
+        let detailsPromise: Promise<ExampleMatch> | undefined;
+        const missingId = !match.event.resultRSC?.trim();
+        const missingIdMessage = 'Match details are unavailable: missing match identifier. This match cannot be downloaded.';
+        const getOriginalDetails = (): Promise<unknown> => {
             const idMatch = match.event.resultRSC;
             if (!idMatch?.trim()) {
-                status.textContent = 'Match details are unavailable: missing match identifier.';
+                return Promise.reject(new Error('Missing match identifier.'));
+            }
+            if (!originalDetailsPromise) {
+                originalDetailsPromise = this.olympicResultsApi.getMatchDetails(idMatch)
+                    .then(details => {
+                        if (details == null || (typeof details === 'object' && !Object.keys(details).length)) {
+                            throw new EmptyMatchDetailsError('No match details were returned.');
+                        }
+                        if (typeof details !== 'object' || Array.isArray(details)) {
+                            throw new Error('The match details response is empty or invalid.');
+                        }
+                        const result = (details as OlympicMatchData).result ?? (details as OlympicMatchData).results;
+                        if (!result || typeof result !== 'object' || Array.isArray(result)
+                            || ![result.items, result.periods, result.extendedInfos, result.eventUnit, result.schedule, result.playByPlay]
+                                .some(value => value && typeof value === 'object' && Object.keys(value).length)) {
+                            throw new EmptyMatchDetailsError('No match details were returned.');
+                        }
+                        return details;
+                    })
+                    .catch(error => {
+                        originalDetailsPromise = undefined;
+                        throw error;
+                    });
+            }
+            return originalDetailsPromise;
+        };
+        const getDetails = (): Promise<ExampleMatch> => {
+            if (!detailsPromise) {
+                detailsPromise = getOriginalDetails()
+                    .then(details => this.dataExtractor.transformMatchDetails(<OlympicMatchData>details, this.footballSymbols))
+                    .catch(error => {
+                        detailsPromise = undefined;
+                        throw error;
+                    });
+            }
+            return detailsPromise;
+        };
+        let downloading = false;
+        const directDownload = async (): Promise<void> => {
+            if (downloading) return;
+            if (missingId) {
+                view.setDownloadState(false, missingIdMessage, 'error');
+                return;
+            }
+            downloading = true;
+            view.setDownloadState(true, 'Preparing JSON download...');
+            try {
+                this.downloadMatchJson(await getDetails(), match);
+                view.setDownloadState(true, '');
+            } catch (error) {
+                view.setDownloadState(true, error instanceof EmptyMatchDetailsError
+                    ? 'No match details are available to download. Try Download again later.'
+                    : 'JSON could not be downloaded. Use Download again to retry.',
+                error instanceof EmptyMatchDetailsError ? 'empty' : 'error');
+                console.error('Failed to download JSON:', error);
+            } finally {
+                downloading = false;
+                view.setDownloadState(false);
+            }
+        };
+        const copyJson = async (json: string): Promise<void> => {
+            const version = requestVersion;
+            if (copyingVersion === version) return;
+            copyingVersion = version;
+            view.setCopyState(true, 'Copying JSON to the clipboard...');
+            try {
+                await navigator.clipboard.writeText(json);
+                if (version === requestVersion) view.setCopyState(false, 'JSON copied to the clipboard.', 'success');
+            } catch (error) {
+                if (version === requestVersion) {
+                    view.setCopyState(false, 'JSON could not be copied. Allow clipboard access on HTTPS or localhost, then try Copy again.', 'error');
+                }
+                console.error('Failed to copy JSON to the clipboard:', error);
+            } finally {
+                if (copyingVersion === version) copyingVersion = undefined;
+            }
+        };
+        let copyingVersion: number | undefined;
+        let requestVersion = 0;
+        const toggle = async (format: DetailsFormat, retry = false): Promise<void> => {
+            activeFormat = !retry && activeFormat === format ? null : format;
+            const version = ++requestVersion;
+            view.setFormat(activeFormat);
+            view.setBusy(false);
+            if (activeFormat === null) {
                 return;
             }
 
-            loading = true;
-            panel.setAttribute('aria-busy', 'true');
-            status.textContent = 'Loading match details...';
+            view.resetContent();
+            if (missingId) {
+                view.setStatus(missingIdMessage, 'error');
+                return;
+            }
+
+            view.setBusy(true);
+            view.setStatus('Loading match details...');
             try {
-                const details = await this.olympicResultsApi.getMatchDetails(idMatch);
-                const parsedDetails = this.dataExtractor.transformMatchDetails(details);
-                const content = document.createElement('pre');
-                content.textContent = JSON.stringify(parsedDetails, null, 2);
-                status.textContent = '';
-                panel.append(content);
-                loaded = true;
+                if (format === 'original') {
+                    const originalDetails = await getOriginalDetails();
+                    if (version !== requestVersion) {
+                        return;
+                    }
+                    view.showOriginal(originalDetails);
+                    return;
+                }
+                const parsedDetails = await getDetails();
+                if (version !== requestVersion) {
+                    return;
+                }
+                view.showDetails(parsedDetails, format);
             } catch (error) {
-                status.textContent = 'Failed to load match details. Close and reopen to retry.';
+                if (version !== requestVersion) {
+                    return;
+                }
+                view.setStatus(error instanceof EmptyMatchDetailsError
+                    ? 'No match details are available for this match. Please retry later.'
+                    : 'Match details could not be loaded or displayed. Please retry.',
+                error instanceof EmptyMatchDetailsError ? 'empty' : 'error', () => {
+                    void toggle(format, true);
+                });
                 console.error('Failed to load match details:', error);
             } finally {
-                loading = false;
-                panel.setAttribute('aria-busy', 'false');
+                if (version === requestVersion) {
+                    view.setBusy(false);
+                }
             }
         };
+        const view = this.htmlService.attachMatchDetails(row, match, {
+            onToggle: format => { void toggle(format); },
+            onDirectDownload: () => { void directDownload(); },
+            onCopy: json => { void copyJson(json); },
+        });
+    }
 
-        row.addEventListener('click', () => { void toggle(); });
+    private downloadMatchJson(details: ExampleMatch, match: MatchSummary): void {
+        const json = JSON.stringify(details, null, 2);
+        const home = details.teams.home ?? match.event.participants[0]?.description ?? 'Unknown home team';
+        const away = details.teams.away ?? match.event.participants[1]?.description ?? 'Unknown away team';
+        const matchDate = match.timeAndOrder.startDate ?? details.kickoff;
+        const date = matchDate ? matchDate.slice(0, 10) : 'Unknown date';
+        const filename = `${home}-${away}-${date}`.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_') + '.json';
+        this.htmlService.downloadJson(json, filename);
     }
 
     private compareMatches(first: MatchSummary, second: MatchSummary): number {

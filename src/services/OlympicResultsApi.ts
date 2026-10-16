@@ -1,24 +1,28 @@
 import type { CompetitionData } from '../models/CompetitionData';
-import { URLS } from './OlympicResultsUrls';
+import { URLS } from '../constants/OlympicResultsUrlsConstant';
 import { DataParser } from './DataParser';
 
 export class OlympicResultsApi {
-    constructor(private readonly dataExtractor = new DataParser()) {}
+    /** Creates an API service using the supplied parser or a default instance. */
+    constructor(private readonly dataParser = new DataParser()) {}
 
+    /** Fetches the available football competition dates. */
     async getCompetitionDates(): Promise<CompetitionData> {
         return this.fetchJson<CompetitionData>(URLS.competitionDates);
     }
 
+    /** Fetches and transforms match summaries for the requested date. */
     async getMatchSummary(date: string): Promise<ReturnType<DataParser['transformSchedules']>> {
         if (!date.trim()) {
             throw new Error('OlympicResultsApi: date must not be empty.');
         }
 
-        const url = this.dataExtractor.buildMatchSummaryUrl(date);
+        const url = this.dataParser.buildMatchSummaryUrl(date);
         const data = await this.fetchJson<Parameters<DataParser['transformSchedules']>[0]>(url);
-        return this.dataExtractor.transformSchedules(data);
+        return this.dataParser.transformSchedules(data);
     }
 
+    /** Fetches the original match details for the given result identifier. */
     async getMatchDetails(idMatch: string): Promise<unknown> {
         if (!idMatch.trim()) {
             throw new Error('OlympicResultsApi: idMatch must not be empty.');
@@ -28,18 +32,12 @@ export class OlympicResultsApi {
         return this.fetchJson(url);
     }
 
-    async getDisciplines(): Promise<unknown> {
-        return this.fetchJson(URLS.disciplines);
-    }
-
+    /** Fetches sport codes and returns the supported football action mappings. */
     async getSportCodes(): Promise<unknown> {
-        return this.fetchJson(URLS.sportCodes);
+        return this.dataParser.filterFootballActions(await this.fetchJson(URLS.sportCodes));
     }
 
-    async getLabels(): Promise<unknown> {
-        return this.fetchJson(URLS.labels);
-    }
-
+    /** Fetches JSON and throws an error for unsuccessful HTTP responses. */
     private async fetchJson<T = unknown>(url: string): Promise<T> {
         const response = await fetch(url);
 
